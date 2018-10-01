@@ -73,7 +73,7 @@ envStack <- stack(c( list.files('C:/Users/Rebecca/Desktop/SDM_Workshop/WORLDCLIM
              full.names=TRUE)
 ))
 
-evnStack = crop(envStack,studyExtent)
+envStack = crop(envStack,studyExtent)
 
 plot(envStack)
 ```
