@@ -1,0 +1,26 @@
+---
+title: "Add layers to envStack"
+output: html_notebook
+---
+
+This document contains code to add layers to the stack of predictor variables.
+
+```{r}
+knitr::opts_knit$set(root.dir = "Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/")
+source("Y:/users/rah/R/Rconfigure_default.r")
+
+# geographic tools packages
+library(raster)
+library(rgdal)
+```
+
+Load the current version of envStack and a new elevation layer. Crop the elevation layer to the extent of envStack, and then add it to the stack. Save the new version.
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack.RData")
+
+elevation <- raster('C:/Users/Rebecca/Desktop/SDM_Workshop/WORLDCLIM/Elevation/World/elevation.tif')
+elevation <- crop(elevation, extent(envStack))
+envStack_v2 = addLayer(envStack,elevation)
+save(envStack_v2,"Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v2.RData")
+```
+

@@ -1,0 +1,83 @@
+---
+title: "Predictor Variable Assembly"
+output: html_notebook
+---
+
+This document contains code to assemble environmental rasters/layers as predictor variables for the eBird analysis. This code will not work without access to some additional data (WORLDCLIM, ecoregions).
+
+```{r}
+knitr::opts_knit$set(root.dir = "C:/Users/Rebecca/Desktop/SDM_Workshop/")
+source("Y:/users/rah/R/Rconfigure_default.r")
+
+# geographic tools packages
+library(raster)
+library(rgeos)
+library(geosphere)
+library(rgdal)
+# extra
+library(scales)
+
+memory.limit(memory.limit() * 2^30)
+```
+
+```{r}
+eco <- rgdal::readOGR('C:/Users/Rebecca/Desktop/SDM_Workshop/Ecoregions of the Continents (USDA)', 'provinces')
+eco <- eco[-which(eco$DOM_DESC=='outside polygon'), ]
+sp::plot(eco, col='gray80')
+```
+
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/janDuckDataNAmer.RData")
+records = SpatialPointsDataFrame(coords=cbind(duckData$LONGITUDE,duckData$LATITUDE),
+                                 data=duckData,
+                    proj4string=CRS('+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0'))
+
+# select ecoregions in which there is at least one record
+ecoContain <- eco[records, ]
+
+# plot
+sp::plot(ecoContain)
+sp::plot(eco, add=TRUE, col='gray70')
+sp::plot(ecoContain, add=TRUE, col='brown1')
+points(records$LONGITUDE, records$LATITUDE, pch=21, bg='mediumseagreen')
+```
+
+```{r}
+touchMatrix <- gTouches(eco, ecoContain, byid=TRUE)
+touchVector <- colSums(touchMatrix)
+ecoStudyRegion <- eco[touchVector > 0, ]
+
+ecoStudyRegion <- rbind(ecoStudyRegion, ecoContain, makeUniqueIDs=TRUE)
+
+sp::plot(ecoStudyRegion, col='gray80')
+points(records$LONGITUDE, records$LATITUDE, pch=21, bg='mediumseagreen', cex=0.5)
+```
+
+```{r}
+
+# save selected ecoregions for later use as a shapefile
+rgdal::writeOGR(
+  ecoStudyRegion,
+  'Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599',
+  'tnc_terr_ecoregions_containOrAdjacentToContainingRegions',
+  driver='ESRI Shapefile', overwrite_layer=TRUE
+)
+
+```
+
+
+```{r}
+studyExtent <- extent(ecoStudyRegion)
+
+envStack <- stack(c( list.files('C:/Users/Rebecca/Desktop/SDM_Workshop/WORLDCLIM/1970-2000/World',pattern="tif$",
+             full.names=TRUE)
+))
+
+evnStack = crop(envStack,studyExtent)
+
+plot(envStack)
+```
+
+```{r}
+save(envStack,file = "Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack.RData")
+```
