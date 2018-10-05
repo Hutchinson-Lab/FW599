@@ -1,0 +1,39 @@
+---
+title: "Add coarse wetlands layer to envStack"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+This document contains code to add layers to the stack of predictor variables.
+
+```{r}
+
+source("Y:/users/rah/R/Rconfigure_default.r")
+
+# geographic tools packages
+library(raster)
+library(rgdal)
+```
+
+Load the current version of envStack and a new coarse wetlands layer. Crop the and resample the wetlands layer to that of envStack, and then add it to the stack. Save the new version.
+```{r}
+# load current evnStack
+load("D:/Dropbox/rachel.brunner/PhD/FW599/git/envStack.Rdata")
+
+# load raster to add
+glwd3 <- raster('D:/Brunner/wetlands_GIS/glwd_3.tif')
+
+# crop raster to envStack
+glwd3 <- crop(glwd3, extent(envStack))
+
+# resample raster to envStack
+glwd3 <- resample(glwd3, envStack, method="ngb")
+
+# add to stack
+envStack_v2 = addLayer(envStack,glwd3)
+
+save(envStack_v2,file = "D:/Dropbox/rachel.brunner/PhD/FW599/git/envStack_v2RLB.Rdata")
+```
+
+
