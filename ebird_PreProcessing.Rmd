@@ -61,7 +61,7 @@ save(duckData,file="Y:/users/rah/Teaching/2018fa_fw599/janDuckDataNAmer.RData")
 
 Load the eBird data subset.
 ```{r}
-load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/janDuckDataNAmer.RData") # duckData
+load("janDuckDataNAmer.RData") # duckData
 ```
 
 # Decision: PRIMARY_CHECKLIST_FLAG
@@ -84,10 +84,52 @@ table(duckData_v2$COUNT_TYPE)
 ```
 
 ** Are there any count types we want to categorically exclude? ** If so, create v3 of the data here:
-```{r}
-duckData_v3 = duckData_v2
-```
 
+There are several count types with no observations and several count types with very few observations. The non-zero count types include :
+
+P21 Stationary: Count is conducted in a fixed location (within ~30m) during a known time
+P22 Traveling: Count is made over a known period of time and a known distance
+P23 Areal:Observers search an area of a specific known size over a known period of time 
+P46 Caribbean Stationary: ~ the same as 21 but in the Caribbean
+P47 Caribbean Areal: ~ the same as 23, but in the Caribbean
+P48 Random Location Count: The birder travels 3-5 miles in a random direction from their previous count location and conduct a 5+ minute stationary count. 
+P58 Texas Shorebird Survey: One mile fixed transects, birds are counted within 1/4 mile of transect
+P60 Pelagic: Traveling count > 2 miles from shore, 60 minutes or less long. Observers record distance and time.
+P61 IBA Canada Traveling: Similar to Christmas Bird Count protocol, includes the count time and distance
+P62 Historical (all 3): This could be any count type, and is usually data that was collected prior to the start of ebird.
+P64 Traveling (property specific): a traveling count where the observer stayed within the boundaries of a specific area (for instance if they birded only on W.L. Finley NWR) however, I think this only applies to a few particular surveys (such as the Wisconsin Breeding Bird Atlas)
+
+Of these it seems useful to regroup all of the counts types into three count types: areal (23, 47), stationary (21, 46, 48), and traveling (22,58,60,61,64). The historical category (62) should definitely be dropped since it can't be linked to one of the main data collection types, and it doesn't make sense to have historic records as part of a 2016 dataset. The pelagic and Texas Shorebird survey could either be included as traveling or dropped since they are a little different than the other methods, and there aren't a lot of observations for these survey types, but for now they are included with the traveling factor (58, 60). Finally, the caribbean surveys (46,47) are currently retained, but if we didn't want to consider this geographic area, these could also be dropped.
+
+```{r}
+library(dplyr) #load dplyr library for the filter function
+
+#this chunk will select any categories we do not want to include and will drop them plus any empty factors from the dataset.
+duckData_v3 <- duckData_v2 %>%  
+  filter(COUNT_TYPE != "P62") %>%
+  droplevels() #drop empty levels
+table(duckData_v3$COUNT_TYPE)#double check to make sure we now only have the desired categories
+#duckData_v3 = duckData_v2
+
+```
+```{r}
+#create new column with simplified count types
+duckData_v3$Count_Type2 <- as.factor(
+  ifelse(duckData_v3$COUNT_TYPE %in% c("P23","P47"),
+         "Areal",
+         ifelse(duckData_v3$COUNT_TYPE %in% c("P22","P58","P60","P61","P64"),
+                "Traveling",
+                ifelse(duckData_v3$COUNT_TYPE %in% c("P21","P46","P48"),
+                       "Stationary",
+                       as.character(duckData_v3$COUNT_TYPE)
+                )
+         )
+  )
+)
+table(duckData_v3$Count_Type2)#double check new categories
+  
+                      
+```
 
 # Decision: EFFORT variables
 ```{r}
@@ -125,8 +167,22 @@ dim(duckData_v5)
 ```
 
 ** Should we limit the amount of hours spent as well? ** If so, create v6 here.
+
+We could limit the counts to 2 hours or less and retain the majority of the data:
+
 ```{r}
-duckData_v6 = duckData_v5
+#show a histogram of effort hours by count type 
+plot1 <- ggplot(duckData_v5,aes(EFFORT_HRS)) + geom_histogram(binwidth = .25) + facet_wrap(~Count_Type2, ncol=1, scales="free_y") + scale_x_continuous(breaks=seq(0,25,1))
+
+plot1
+```
+
+Removing observations with greater than 2 hours effort reduced the dataset by ~ 10% (~25,000 observations), removing observations with greater than 1 hour effort reduces the dataset by ~25% (~68,000 observations), and removing observations with greater than 3 hours effort reduces the dataset by ~ 5% (~11,000 observations). Since 3 hours or less is more conservative, it is currently set as the cutoff   
+```{r}
+#remove observations > 2 hours
+duckData_v6 = duckData_v5[which(duckData_v5$EFFORT_HRS<=3),]
+dim(duckData_v5) # n for duck data 5
+dim(duckData_v6) #n for duck data 6
 ```
 
 # Map the new version
@@ -152,4 +208,3 @@ p2 + geom_point(aes(x=LONGITUDE,y=LATITUDE,col="red"),data=duckData_v6)
 ```{r}
 save(duckData_v6,filename="Y:/users/rah/Teaching/2018fa_fw599/janDuckDataNAmer_v2.RData")
 ```
-
