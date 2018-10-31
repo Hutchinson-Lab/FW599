@@ -1,0 +1,278 @@
+---
+title: "eBird: Train/test split(s)"
+output: html_notebook
+---
+
+This document contains code to split the eBird data for evaluation purposes.  
+
+Set-up chunk.
+```{r,message=FALSE}
+source("Y:/users/rah/R/Rconfigure_default.r")
+library(ggplot2)
+library(knitr)
+library(sp)
+library(raster)
+library(dismo)
+library(PRROC)
+library(pROC)
+#library(tidyverse)
+#library(magrittr)
+knitr::opts_knit$set(root.dir = "Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599")
+```
+
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/janDuckDataNAmer_v2.RData") # duckData
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v2.RData") # envStack
+```
+
+```{r}
+spp = "Oxyura_jamaicensis"
+#spp = "Anas_fulvigula"
+sppCol = which(names(duckData)==spp)
+nRecords = length(duckData[,sppCol])
+print(paste("Number of records:", nRecords))
+print(paste("Number of zeroes:",sum(duckData[,sppCol]=="0")))
+print(paste("Number of non-zeroes:",sum(duckData[,sppCol]!="0")))
+print(paste("Prevalence:",sum(duckData[,sppCol]!="0")/length(duckData[,sppCol])))
+
+```
+
+# Decision: One split? Or species-specific?
+Should we make a single set of test locations for all species? Or define a procedure for creating a test set and apply the procedure to all species?
+
+CHOICE: a systematic procedure to be applied to species independently, such that the particular splits may be different but the justification for the procedure will be the same. 
+
+# Decision: Abundance vs. Presence/absence
+Recall that we will treat the "X" values in the eBird differently for abundance vs. presence/absence models. OR, we could drop all records with "X", making the data locations identical at the price of losing some presence records. How much would dropping "X" affect your species?
+```{r}
+abundResp = duckData[,sppCol]
+abundResp[which(abundResp=="X")] = NA # replace X with NA
+abundResp = as.numeric(as.character(abundResp)) # convert factor to numeric
+
+print(paste("Number of Xs:",sum(is.na(abundResp))))
+print(paste("Proportion of all records that are Xs:",sum(is.na(abundResp))/length(abundResp)))
+print(paste("Proportion of presences that are Xs:",sum(is.na(abundResp))/sum(abundResp>0,na.rm=TRUE)))
+
+paResp = duckData[,sppCol]
+paResp[which(paResp=="X")] = "1" # replace X with NA
+paResp = as.numeric(as.character(paResp)) # convert factor to numeric
+paResp = as.numeric(paResp>0) # convert to binary
+
+print(paste("Prevalence with X:", mean(paResp))) # should match the value above
+print(paste("Prevalence without X:", mean(abundResp>0,na.rm=TRUE))) # reduction from above is price of dropping X
+```
+
+CHOICE: While we could fit presence-absence models INCLUDING the 'X' records and abundance models EXCLUDING the 'X' records, it may be interesting to compare presence-absence and abundance models to each other directly at a later stage, which will be easier if they use the exact same test points. Therefore, let's each remove the records containing 'X' for our species.
+
+Note that this code also cuts duckData down to just ONE duck species.
+```{r}
+dim(duckData)
+duckDataNoX = duckData[-which(duckData[,sppCol]=='X'),c(1:19,sppCol)]
+dim(duckDataNoX)
+```
+
+Reset some variables from above:
+```{r}
+sppCol = 20
+nRecords = dim(duckDataNoX)[1]
+abundRespNoX = duckDataNoX[,sppCol]
+abundRespNoX = as.numeric(as.character(abundRespNoX)) # convert factor to numeric
+paRespNoX = duckDataNoX[,sppCol]
+paRespNoX = as.numeric(as.character(paRespNoX)) # convert factor to numeric
+paRespNoX = as.numeric(paRespNoX>0) # convert to binary
+```
+
+# Decision: Size of test set?
+A bigger test set will give us a more precise estimate of our performance. A smaller test set will allow a larger training set.
+
+CHOICE: We will (somewhat arbitrarily) choose 25000 test points, which is close to 10% of our dataset.
+
+```{r}
+nTestPts = 25000
+```
+
+# A default: sample these points randomly. 
+
+```{r}
+set.seed(1234)
+testIdxs = sample.int(nRecords,nTestPts) # random sample of test points
+print(paste("Prevalence of test set:",mean(paRespNoX[testIdxs])))
+print(paste("Prevalence of training set:",mean(paRespNoX[-testIdxs])))
+print(paste("Mean abundance of test set:",mean(abundRespNoX[testIdxs])))
+print(paste("Mean abundance of training set:",mean(abundRespNoX[-testIdxs])))
+print(paste("Sanity check - should be 0 remaining NAs: ",sum(is.na(abundRespNoX[testIdxs]))))
+```
+
+Let's call this the base test set and save it. Below, we'll also look at just a subset of this that deals with spatial considerations as well.
+
+```{r}
+trainData = duckDataNoX[-testIdxs,]
+trainData = cbind(trainData,
+                  presAbs=as.numeric(as.numeric(as.character(trainData[,sppCol]))>0),
+                  abund=as.numeric(as.character(trainData[,sppCol])))
+
+testData = duckDataNoX[testIdxs,]
+testData = cbind(testData,
+                  presAbs=as.numeric(as.numeric(as.character(testData[,sppCol]))>0),
+                  abund=as.numeric(as.character(testData[,sppCol])))
+
+save(trainData,file=paste("trainData_",spp,".RData",sep=""))
+save(testData,file=paste("testData_",spp,".RData",sep=""))
+```
+
+# Decision: How should we deal with spatial considerations?
+Compute 'spatial sorting bias' from Hijmans (2012).
+
+```{r}
+# BUG: these indices were not being computed correctly:
+#testPresIdxs = which(is.element(which(paRespNoX==1),testIdxs))
+#testAbsIdxs = which(is.element(which(paRespNoX==0),testIdxs))
+#trainPresIdxs = which(!is.element(which(paRespNoX==1),testIdxs))
+
+
+#spSortBias = ssb(p=cbind(duckData$LONGITUDE[testPresIdxs],duckData$LATITUDE[testPresIdxs]),
+#                 a=cbind(duckData$LONGITUDE[testAbsIdxs],duckData$LATITUDE[testAbsIdxs]),
+#                 ref=cbind(duckData$LONGITUDE[trainPresIdxs],duckData$LATITUDE[trainPresIdxs])) # BUG: should be duckDataNoX
+
+#spSortBias = ssb(p=cbind(duckDataNoX$LONGITUDE[testPresIdxs],duckDataNoX$LATITUDE[testPresIdxs]),
+#                 a=cbind(duckDataNoX$LONGITUDE[testAbsIdxs],duckDataNoX$LATITUDE[testAbsIdxs]),
+#                 ref=cbind(duckDataNoX$LONGITUDE[trainPresIdxs],duckDataNoX$LATITUDE[trainPresIdxs]))
+
+spSortBias = ssb(p=cbind(testData$LONGITUDE[testData$presAbs==1],testData$LATITUDE[testData$presAbs==1]),
+                 a=cbind(testData$LONGITUDE[testData$presAbs==0],testData$LATITUDE[testData$presAbs==0]),
+                 ref=cbind(trainData$LONGITUDE[trainData$presAbs==1],trainData$LATITUDE[trainData$presAbs==1]))
+print(paste("Spatial sorting bias of test set:",spSortBias[1]/spSortBias[2])) # (1 is no bias, near 0 is extreme bias)
+```
+
+This chunk used the bad indices - ignore it:
+```{r,eval=FALSE}
+plot(duckDataNoX$LONGITUDE[trainPresIdxs],
+     duckDataNoX$LATITUDE[trainPresIdxs],
+     pch=20,
+     xlab="Longitude",
+     ylab="Latitude")
+points(duckDataNoX$LONGITUDE[testAbsIdxs],
+      duckDataNoX$LATITUDE[testAbsIdxs],
+      pch=4,
+      col="blue")
+points(duckDataNoX$LONGITUDE[testPresIdxs],
+      duckDataNoX$LATITUDE[testPresIdxs],
+      pch=3,
+      col="red")
+legend('bottomleft',c("Train pres","Test pres","Test abs"),pch=c(20,3,4),col=c("black","red","blue"))
+```
+
+Fixed version:
+```{r}
+plot(trainData$LONGITUDE[trainData$presAbs==1],
+     trainData$LATITUDE[trainData$presAbs==1],
+     pch=20,
+     xlab="Longitude",
+     ylab="Latitude",
+     xlim=c(-180,-40),
+     ylim=c(5,75))
+points(testData$LONGITUDE[testData$presAbs==0],
+      testData$LATITUDE[testData$presAbs==0],
+      pch=4,
+      col="blue")
+points(testData$LONGITUDE[testData$presAbs==1],
+      testData$LATITUDE[testData$presAbs==1],
+      pch=3,
+      col="red")
+legend('bottomleft',c("Train pres","Test pres","Test abs"),pch=c(20,3,4),col=c("black","red","blue"))
+```
+
+Another option: pair-wise distance sampling according to Hijmans (2012).
+```{r}
+#pwdResult = pwdSample(fixed=cbind(duckDataNoX$LONGITUDE[testPresIdxs],duckDataNoX$LATITUDE[testPresIdxs]),
+#                      sample=cbind(duckDataNoX$LONGITUDE[testAbsIdxs],duckDataNoX$LATITUDE[testAbsIdxs]),
+#                      ref=cbind(duckDataNoX$LONGITUDE[trainPresIdxs],duckDataNoX$LATITUDE[trainPresIdxs]),
+#                      n=1) # BUG: This also used the bad indices
+pwdResult = pwdSample(fixed=cbind(testData$LONGITUDE[testData$presAbs==1],testData$LATITUDE[testData$presAbs==1]),
+                      sample=cbind(testData$LONGITUDE[testData$presAbs==0],testData$LATITUDE[testData$presAbs==0]),
+                      ref=cbind(trainData$LONGITUDE[trainData$presAbs==1],trainData$LATITUDE[trainData$presAbs==1]),
+                      n=1)
+head(pwdResult)
+sum(is.na(pwdResult[,1]))
+```
+
+So, some of the test presences could not be paired with suitable test absences in this framework. We would cut them, presumably.
+
+```{r}
+
+#newTestPresIdxs = testPresIdxs[which(!is.na(pwdResult[,1]))]
+#newTestAbsIdxs = testAbsIdxs[pwdResult[which(!is.na(pwdResult[,1])),1]]
+#newTestIdxs = c(newTestPresIdxs,newTestAbsIdxs)
+
+newTestData = rbind(testData[which(testData$presAbs==1)[!is.na(pwdResult[,1])],],
+                    testData[which(testData$presAbs==0)[pwdResult[!is.na(pwdResult[,1]),1]],])
+print(paste("Size of test subset:",dim(newTestData)[1]))
+
+#spSortBias2 = ssb(p=cbind(duckDataNoX$LONGITUDE[newTestPresIdxs],duckDataNoX$LATITUDE[newTestPresIdxs]),
+#                 a=cbind(duckDataNoX$LONGITUDE[newTestAbsIdxs],duckDataNoX$LATITUDE[newTestAbsIdxs]),
+#                 ref=cbind(duckDataNoX$LONGITUDE[trainPresIdxs],duckDataNoX$LATITUDE[trainPresIdxs]))
+spSortBias2 = ssb(p=cbind(newTestData$LONGITUDE[newTestData$presAbs==1],newTestData$LATITUDE[newTestData$presAbs==1]),
+                 a=cbind(newTestData$LONGITUDE[newTestData$presAbs==0],newTestData$LATITUDE[newTestData$presAbs==0]),
+                 ref=cbind(trainData$LONGITUDE[trainData$presAbs==1],trainData$LATITUDE[trainData$presAbs==1]))
+print(paste("Spatial sorting bias of test subset:",spSortBias2[1]/spSortBias2[2])) # (1 is no bias, near 0 is extreme bias)
+
+#print(paste("Prevalence of test subset:",mean(paRespNoX[newTestIdxs])))
+#print(paste("Mean abundance of test subset:",mean(abundRespNoX[newTestIdxs])))
+print(paste("Prevalence of test subset:",mean(newTestData$presAbs)))
+print(paste("Mean abundance of test subset:",mean(newTestData$abund)))
+
+```
+
+OLD: 
+```{r,eval=FALSE}
+plot(duckDataNoX$LONGITUDE[trainPresIdxs],
+     duckDataNoX$LATITUDE[trainPresIdxs],
+     pch=20,
+     xlab="Longitude",
+     ylab="Latitude",
+     main="Test Subset")
+points(duckDataNoX$LONGITUDE[newTestAbsIdxs],
+      duckDataNoX$LATITUDE[newTestAbsIdxs],
+      pch=4,
+      col="blue")
+points(duckDataNoX$LONGITUDE[newTestPresIdxs],
+      duckDataNoX$LATITUDE[newTestPresIdxs],
+      pch=3,
+      col="red")
+legend('bottomleft',c("Train pres","Test pres","Test abs"),pch=c(20,3,4),col=c("black","red","blue"))
+```
+
+NEW:
+```{r}
+plot(trainData$LONGITUDE[trainData$presAbs==1],
+     trainData$LATITUDE[trainData$presAbs==1],
+     pch=20,
+     xlab="Longitude",
+     ylab="Latitude",
+     xlim=c(-180,-40),
+     ylim=c(5,75))
+points(newTestData$LONGITUDE[newTestData$presAbs==0],
+      newTestData$LATITUDE[newTestData$presAbs==0],
+      pch=4,
+      col="blue")
+points(newTestData$LONGITUDE[newTestData$presAbs==1],
+      newTestData$LATITUDE[newTestData$presAbs==1],
+      pch=3,
+      col="red")
+legend('bottomleft',c("Train pres","Test pres","Test abs"),pch=c(20,3,4),col=c("black","red","blue"))
+```
+
+CHOICE: Let's save this second test set, which is a subset of the original test set, corrected for spatial sorting bias. It will be smaller than the original, but balanced 50/50 between presences and absences. We can look at performance on both test sets - the differences may be interesting!
+
+```{r}
+#testSubset = duckDataNoX[newTestIdxs,]
+#testSubset = cbind(testSubset,
+#                  presAbs=as.numeric(as.numeric(as.character(testSubset[,sppCol]))>0),
+#                  abund=as.numeric(as.character(testSubset[,sppCol])))
+
+#save(testSubset,file=paste("testSubset_",spp,".RData",sep=""))
+
+testSubset = newTestData
+save(testSubset,file=paste("testSubset_",spp,".RData",sep=""))
+
+```
