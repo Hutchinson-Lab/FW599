@@ -1,0 +1,238 @@
+---
+title: "eBird Data Processing"
+output: html_notebook
+---
+
+This document contains code to pre-process the eBird data.  
+
+Set-up chunk.
+```{r,message=FALSE}
+source("Y:/users/rah/R/Rconfigure_default.r")
+library(ggplot2)
+library(ggmap)
+library(knitr)
+library(sp)
+library(raster)
+library(ggcorrplot)
+#library(tidyverse)
+#library(magrittr)
+knitr::opts_knit$set(root.dir = "Y:/users/rah/Teaching/2018fa_fw599")
+```
+
+Here's some code to limit to our 10 focal species. This chunk is set up to not run - it's just here for completeness. It grabs the 2016 data, limits to the 10 species, and limits to January.
+```{r,eval=FALSE}
+sppNames = c('Anas_acuta', # Northern Pintail
+             'Anas_fulvigula', # Mottled Duck
+             'Aythya_valisineria', # Canvasback
+             'Oxyura_jamaicensis', # Ruddy Duck 
+             'Anas_americana', # American Wigeon
+             'Bucephala_clangula', # Common Goldeneye
+             'Melanitta_perspicillata', # Surf Scoter
+             'Anas_strepera', # Gadwall
+             'Aix_sponsa', # Wood Duck
+             'Cygnus_columbianus') # Tundra Swan
+
+df <- as.data.frame(matrix(0, ncol = 20, nrow = 3335078), stringsAsFactors = FALSE)
+
+colNames <- names(read.csv("Y:/data/eBirdRef/ERD2016SS/2016/checklists.csv",nrow=1))
+nCols = length(colNames)
+
+colClasses = array("NULL",c(nCols,1))
+colClasses[1:19] = NA # first 19 are checklist-specific
+colClasses[which(is.element(colNames,sppNames))] = NA
+system.time(duckData <- read.csv("Y:/data/eBirdRef/ERD2016SS/2016/checklists.csv",colClasses=colClasses))
+# took a little over 2 hours to read all this in
+
+janDuckData = subset(duckData,MONTH==1)
+
+save(janDuckData,file="Y:/users/rah/Teaching/2018fa_fw599/janDuckData.RData")
+```
+
+Here's some code to limit to North America, excluding Hawaii. This chunk is set up not to run - it's just here for completeness.
+```{r,eval=FALSE}
+load("Y:/users/rah/Teaching/2018fa_fw599/janDuckData.RData")
+
+countries = c("Anguilla", "Antigua and Barbuda", "Aruba", "Bahamas", "Barbados", "Canada", "Cayman Islands", "Cuba", "Cuba", "Dominican Republic", "Grenada", "Haiti", "Jamaica", "Martinique", "Mexico", "Montserrat", "Puerto Rico", "Saint Kitts and Nevis", "Saint Lucia", "Saint Martin (French part)", "Saint Pierre and Miquelon", "Saint Vincent and the Grenadines", "Turks and Caicos Islands", "United States", "United States Minor Outlying Islands", "Virgin Islands (British)", "Virgin Islands (U.S.)" )
+
+janDuckData = subset(janDuckData,is.element(COUNTRY,countries)
+& STATE_PROVINCE!="Hawaii")
+
+duckData = janDuckData
+save(duckData,file="Y:/users/rah/Teaching/2018fa_fw599/janDuckDataNAmer.RData")
+```
+
+Load the eBird data subset.
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/janDuckDataNAmer.RData") # duckData
+```
+
+# Decision: PRIMARY_CHECKLIST_FLAG
+See section 4.2.1 of the eBird documentation (pdf on Canvas).
+```{r}
+table(duckData$PRIMARY_CHECKLIST_FLAG)
+```
+This takes the value 1 for unique checklists or for the primary checklist of a group count. Limit to PRIMARY_CHECKLIST_FLAG==1.
+
+```{r}
+duckData_v2 = duckData[which(duckData$PRIMARY_CHECKLIST_FLAG==1),]
+dim(duckData)
+dim(duckData_v2)
+```
+
+# Decision: COUNT_TYPE
+Check out Table 2 in the eBird documentation.
+```{r}
+table(duckData_v2$COUNT_TYPE)
+```
+
+Contributed by Hankyu Kim:
+Now we will look up the count types Abbreviation for count types are; S = Stationary, T = Traveling, A = Area count.
+```{r}
+names(table(duckData_v2$COUNT_TYPE))
+
+Count_types<-cbind(names(table(duckData_v2$COUNT_TYPE)),c("Ebird-Stationary","Ebird-Traveling","Ebird-Exhaustive Area","Vermont Loon Watch", "Rusty Blackbird Count", "Caribbiean Waterbird Census-stationary","Carribean Waterbird Census-Area search","Ebird Random Loc","Carribean Martin Survey","Texas Shorebird Survey","Ebird Pelagic", "IBA Canada", "Historical", "Traveling-Property Specific", "Portugal Breeding Bird Atlas","Alaskan Bog Bird survey","Californian Brown Pelican Survey"),c("S","T","A","A","T","S","A","T","S","T","T","T","T","T","T","T","T"),table(duckData_v2$COUNT_TYPE))
+
+colnames(Count_types)<-c("TypeID","Surveyname","Types","Record")
+rownames(Count_types)<-c(1:nrow(Count_types))
+
+(Count_types)
+```
+
+It seems like ebird traveling data and stationary data are most abundant. First, we will sort out surveys without data (loon watch, rusty blackbird count, martin Survey, Portugal bird atlas, Alaskan bog birds, and Californian brown pelicans).
+
+Which leaves us with regular Ebird count types and location specific surveys (Caribbean, Texas, and Canada), and few others. Random location is a specific random location counts suggested by ebird to calibrate the citizen-science data which is biased toward "good birding sites" (https://help.ebird.org/customer/en/portal/articles/1210256-what-is-a-random-count-). So it can be accounted as other ebird counts for our purpose.
+
+Historic category is tricky, since it is a data that should not be entered for 2016 data with exact date, time, and effort. It is for a 'birding trip long ago that I don't remember exact time and distance /area covered'. So I'd say this may be an mis-entered data, or questionable data, and together with it's small contribution to the whole dataset, I suggest removing this.
+
+```{r}
+duckData_historical = duckData[which(duckData$COUNT_TYPE=="P62"),]
+summary(duckData_historical)
+```
+
+IBA Canada is suggests its recorders to ensure they cover the entire IBA area, which is a inventory for a site, or can be accounted as exhaustive area count, even though it is classified as traveling type, because it allows people to enter observations from part of the IBA. So if we can account for effort, we will be able to incorporate this data. I guess the northern distribution of these areas is important for our geographic coverage. (https://www.ibacanada.org/documents/eBird_IBA_protocol.pdf)
+
+For pelagic protocol, if we define our scope to terrestiral wetlands and coastal area than this count type is not applicable since it is counts that are done out at least two miles from the shore. However, for Scoters, this may be important geographic region to include.
+
+Caribbean waterbird census is a census for each wintering area, but since it has all effort recorded, I suggest that it is proper to include these data and control for efforts. (https://ebird.org/caribbean/news/count-waterbirds-in-the-caribbean-join-our-first-region-wide-count/)
+
+For texas shorebird count and property specific traveling counts, I would not bother to include them in the dataset, due to their low proportion in overall data, and the specific purpose of survey is bias towar certain taxa(shorebird: Charadriforms) that is not our group of interest, and lastly because I was not able to find protocol or definition of property specific count type.
+
+So in summary, I suggest to include only seven of all count types, which include 99.7% of all records.
+
+```{r}
+table(duckData_v2$COUNT_TYPE)
+
+nrow(duckData_v2[which(is.element(duckData_v2$COUNT_TYPE, c("P21","P22","P23","P46","P47","P48","P61"))),])
+
+duckData_v3=subset(duckData_v2, is.element(COUNT_TYPE,c("P21","P22","P23","P46","P47","P48","P61")))
+
+
+## included count types and their proportion to original
+(Count_types_in<-Count_types[c(1:3,6:8,12),])
+
+sum(as.numeric(Count_types_in[,4]))/sum(as.numeric(Count_types[,4]))*100
+
+```
+
+
+# Decision: EFFORT variables
+```{r}
+par(mfcol=c(1,3))
+hist(duckData_v3$EFFORT_HRS, main="EFFORT_HRS") # applies to stationary counts
+hist(duckData_v3$EFFORT_DISTANCE_KM, main="EFFORT_DISTANCE_KM") # applies to traveling counts
+hist(duckData_v3$EFFORT_AREA_HA, main="EFFORT_AREA_HA") # applies to areal counts
+par(mfcol=c(1,1))
+```
+Looks like there are some extreme values for distance and area! Closer look at the top 100 values:
+```{r}
+sort(duckData_v3$EFFORT_DISTANCE_KM,decreasing = TRUE)[1:100]
+```
+These values seem huge. For comparison, the WORLDCLIM data we're working with has a spatial resolution of about 340 km^2 (we can get higher resolution if desired). This corresponds to a circle with a radius of about 10km. One could imaging limiting traveling counts to at most 10km. How many is this?
+```{r}
+sum(duckData_v3$EFFORT_DISTANCE_KM<=10) # checklists covering at most 10km
+dim(duckData_v3)[1] # total number of checklists
+```
+Not a huge reduction. Let's go for it.
+```{r}
+duckData_v4 = duckData_v3[which(duckData_v3$EFFORT_DISTANCE_KM<=10),]
+```
+
+A similar process for area counts would make sense.
+```{r}
+sort(duckData_v4$EFFORT_AREA_HA,decreasing = TRUE)[1:100]
+```
+```{r}
+sum(duckData_v4$EFFORT_AREA_HA<=10) # checklists covering at most 10km
+dim(duckData_v4)[1] # total number of checklists
+```
+
+```{r}
+duckData_v5 = duckData_v4[which(duckData_v4$EFFORT_AREA_HA<=10),]
+dim(duckData_v5)
+```
+
+** Should we limit the amount of hours spent as well? ** If so, create v6 here.
+
+From Ladd Irvine:
+check what the longest effort records are
+```{r}
+sort(duckData_v5$EFFORT_HRS,decreasing = TRUE)[1:100]
+```
+
+Yes we should limit effort hours also. There are some records with 24h of effort which seems impossible for one person and unrealistic for a team effort. Additionally, that would include observations made at night which I'm not even sure how that would work. I guess you could do audio sampling but I think ducks are mostly sleeping at night?
+
+It would make the most sense to limit the effort hours to periods that could be completed during daylight hours. Given the latitudinal range of the data that can be a pretty long or short period of time but probably best to go with the longest daylight period at that time of year and assume most records in places with shorter windows of daylight will self-correct as most people will likely just be reporting daylight surveys.The lowest-latitude record is around 12.5 degrees lat (min(duckData_v5$LATITUDE))so daylight would be about 12 hrs counting sunrise and sunset so lets use that for now.
+
+See how many records are left when you trim the effort hours to 12 or less
+```{r}
+sum(duckData_v5$EFFORT_HRS<=12) # checklists covering 12 hrs or less
+```
+```{r}
+dim(duckData_v5)[1] # total number of checklists
+```
+doesn't reduce the number that much so lets pull them out.
+```{r}
+duckData_v6 = duckData_v5[which(duckData_v5$EFFORT_AREA_HA<=12),]
+```
+
+# Map the new version
+
+New mapping code from Lila Leatherman:
+Note, that I'm using data management commands from the packages tidyverse and magrittr. You may have heard of one of the data management packages contained within them: dplyr. 
+
+
+## Using alternate baselayer sources for maps
+
+An easy way to get around the errors from google maps is just to change the source of the get_map() command. Because google is the default, we have to specify a different source.
+
+### Stamen maps
+
+[Stamen](http://maps.stamen.com/#terrain/12/37.7706/-122.3782) is a data visualization utility provides a few different options for map baselayers-- that are easier to query than google. Similar to the google maps, you're also downloading map tiles from an online utility-- but the stamen maps tend to be less finicky and proprietary.
+
+To use them, use the command get_map(), but set source to "stamen".
+
+You can also read more about the different sources and maptypes in the [documentation for the ggmap package.](https://cran.r-project.org/web/packages/ggmap/ggmap.pdf) 
+
+```{r}
+map = get_map(location=c(min(duckData_v6$LONGITUDE)-10,
+                         min(duckData_v6$LATITUDE)-10,
+                         max(duckData_v6$LONGITUDE)+10,
+                         max(duckData_v6$LATITUDE)+10),
+              source="stamen")
+p = ggmap(map) 
+p + geom_point(aes(x=LONGITUDE,y=LATITUDE,col="red"),data=duckData_v6)
+```
+
+Zoom in on Oregon.
+```{r}
+map = get_map(location=c(min(duckData_v6$LONGITUDE[duckData_v6$STATE_PROVINCE=="Oregon"])-1,                         min(duckData_v6$LATITUDE[duckData_v6$STATE_PROVINCE=="Oregon"])-1,                         max(duckData_v6$LONGITUDE[duckData_v6$STATE_PROVINCE=="Oregon"])+1,                         max(duckData_v6$LATITUDE[duckData_v6$STATE_PROVINCE=="Oregon"])+1),
+              maptype="satellite")
+p2 = ggmap(map) 
+p2 + geom_point(aes(x=LONGITUDE,y=LATITUDE,col="red"),data=duckData_v6)
+```
+
+```{r}
+duckData<-duckData_v6
+save(duckData,file="Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/janDuckDataNAmer_v2.RData")
+```
+
