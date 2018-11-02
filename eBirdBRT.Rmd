@@ -36,7 +36,6 @@ load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v3.RData") 
 ```{r}
 testSubset = cbind(testSubset,
                   extract(envStack,testSubset[,c(4,3)]))
-testSubset$glwd_3 = as.factor(testSubset$glwd_3)
 testSubset$GlobCover2009LC = as.factor(testSubset$GlobCover2009LC)
 testSubset$LC_5min_global_2012 = as.factor(testSubset$LC_5min_global_2012)
 ```
@@ -44,7 +43,6 @@ testSubset$LC_5min_global_2012 = as.factor(testSubset$LC_5min_global_2012)
 ```{r}
 testData = cbind(testData,
                   extract(envStack,testData[,c(4,3)]))
-testData$glwd_3 = as.factor(testData$glwd_3)
 testData$GlobCover2009LC = as.factor(testData$GlobCover2009LC)
 testData$LC_5min_global_2012 = as.factor(testData$LC_5min_global_2012)
 ```
@@ -52,7 +50,6 @@ testData$LC_5min_global_2012 = as.factor(testData$LC_5min_global_2012)
 ```{r}
 trainData = cbind(trainData,
                   extract(envStack,trainData[,c(4,3)]))
-trainData$glwd_3 = as.factor(trainData$glwd_3)
 trainData$GlobCover2009LC = as.factor(trainData$GlobCover2009LC)
 trainData$LC_5min_global_2012 = as.factor(trainData$LC_5min_global_2012)
 ```
