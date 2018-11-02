@@ -1,0 +1,98 @@
+---
+title: 'Maxent -> eBird'
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+**You Will Need:**
+
+* The current raster stack
+
+* Your duck species training and test sets
+
+* R packages: raster
+
+```{r}
+source("Y:/users/rah/R/Rconfigure_default.r")
+library(knitr)
+library(raster)
+knitr::opts_knit$set(root.dir = "Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599")
+```
+
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/trainData_Oxyura_jamaicensis.RData") # trainData
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/testData_Oxyura_jamaicensis.RData") # testData
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/testSubset_Oxyura_jamaicensis.RData") # testSubset
+```
+
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v3.RData") # envStack
+
+
+# Write them back out in a new directory in ascii format
+for (f in 1:23) {
+  writeRaster(envStack[[f]],filename = paste('Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/EnvStack_asc/',names(envStack)[f],'.asc',sep=""),format='ascii',overwrite=TRUE)
+}
+
+```
+
+Write the training points to a file for Maxent. Also create a file with the training "absences" to use as background.
+```{r}
+write.csv(cbind(species='Oxyura_jamaicensis',
+                x=trainData$LONGITUDE[trainData$presAbs==1],
+                y=trainData$LATITUDE[trainData$presAbs==1]),
+          file='Oxyura_jamaicensis_trainLocs.csv',
+          row.names = FALSE)
+```
+
+Do we need to thin training presences? 
+
+Use SWD format so we can provide our own background data:
+```{r}
+trainSWD = data.frame(species='Oxyura_jamaicensis',
+                      longitude=trainData$LONGITUDE[trainData$presAbs==1],
+                      latitude=trainData$LATITUDE[trainData$presAbs==1])
+trainSWD = cbind(trainSWD,
+                 extract(envStack,trainSWD[,c(2,3)]))
+rowsWithNAs = which(rowSums(is.na(trainSWD))>0)
+if (length(rowsWithNAs)>0) {
+  trainSWD = trainSWD[-rowsWithNAs,]
+}
+write.csv(trainSWD,
+          file='Oxyura_jamaicensis_SWD.csv',
+          row.names = FALSE)
+
+backgroundSWD = data.frame(species='Oxyura_jamaicensis',
+                           longitude=trainData$LONGITUDE[trainData$presAbs==0],
+                           latitude=trainData$LATITUDE[trainData$presAbs==0])
+backgroundSWD = cbind(backgroundSWD,
+                      extract(envStack,backgroundSWD[,c(2,3)]))
+rowsWithNAs = which(rowSums(is.na(backgroundSWD))>0)
+if (length(rowsWithNAs)>0) {
+  backgroundSWD = backgroundSWD[-rowsWithNAs,]
+}
+
+# cut down to deal with Java memory error
+
+write.csv(backgroundSWD[sample(nrow(backgroundSWD),20000),],
+          file='Oxyura_jamaicensis_background.csv',
+          row.names = FALSE)
+
+
+```
+See the SWD section of the Maxent tutorial for more.
+
+Now we can use the Java app to fit Maxent models to your duck species. Note that we have several choices to make, as explored in the lab (e.g., what variables and feature sets to include). DO NOT USE THE TEST SETS WE CREATED TO MAKE THESE CHOICES. We may subdivide the TRAINING set however you like (random, grid-based, etc.) to create "validation" sets for comparing different choices. Based on these analyses, you should settle on final settings for Maxent and fit a final model to the entire training dataset. This is the single Maxent model you will evaluate on the held-out test set. 
+
+Choices to consider:
+
+* How to structure cross-validation for the choices below
+
+* Which variables to include
+
+* Which features to include
+
+To make maps, we will need the environmental layers (see Projection section of Maxent tutorial). However, I'm getting a projection error with elevation and Mean.Diurnal.Range!
+

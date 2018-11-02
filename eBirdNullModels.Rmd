@@ -1,0 +1,191 @@
+---
+title: "eBird: Null models"
+output: html_notebook
+---
+
+Set-up chunk.
+```{r,message=FALSE}
+source("Y:/users/rah/R/Rconfigure_default.r")
+library(ggplot2)
+library(knitr)
+library(sp)
+library(raster)
+library(dismo)
+library(PRROC)
+library(pROC)
+#library(tidyverse)
+#library(magrittr)
+knitr::opts_knit$set(root.dir = "Y:/users/rah/Teaching/2018fa_fw599")
+```
+
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/trainData_Oxyura_jamaicensis.RData") # duckData
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/testData_Oxyura_jamaicensis.RData") # duckData
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/testSubset_Oxyura_jamaicensis.RData") # duckData
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v3.RData") # envStack
+```
+
+```{r}
+spp = "Oxyura_jamaicensis"
+sppCol = which(names(trainData)==spp)
+
+# Set up indices that may be useful later
+trainPresIdxs = which(trainData[,sppCol]!=0)
+trainAbsIdxs = which(trainData[,sppCol]==0)
+testPresIdxs = which(testData[,sppCol]!=0)
+testAbsIdxs = which(testData[,sppCol]==0)
+testSubsetPresIdxs = which(testSubset[,sppCol]!=0)
+testSubsetAbsIdxs = which(testSubset[,sppCol]==0)
+
+```
+
+# Decision: Which metrics should we compute? For presence/absence? For abundance?
+
+Proposal: make PR and ROC curves for presence/absence data, and compute area under the curves. For abundance, we can use root mean squared error, but I suspect it will be dominated by the largest counts. I'm also interested in checking a less stringent criterion: whether the predicted abundance is the same order of magnitude as the true value (i.e., 0, 1-9, 10-99, 100-999, 1000-9999, >10000). I'm open to more ideas on this. We can also truncate or rescale the abundance predictions to presence/absence to compare directly to the presence/absence models. 
+
+# Null models
+
+We can use the geographic null model (inverse distance) of Hijmans (2012), implemented in the dismo package. This prediction takes a long time.
+```{r,eval=FALSE}
+nullModel = geoDist(cbind(trainData$LONGITUDE[trainPresIdxs],
+                          trainData$LATITUDE[trainPresIdxs]),
+                    lonlat=TRUE)
+nullPred = predict(nullModel,envStack[[1]])
+save(nullPred,file = "geoNullPreds.RData")
+load(file = "geoNullPreds.RData")
+plot(nullPred)
+# next: retrieve test predictions from raster
+geoNullPreds = extract(x=nullPred,
+                y=cbind(testData$LONGITUDE,
+                          testData$LATITUDE))
+subsetGeoNullPreds = extract(x=nullPred,
+                y=cbind(testSubset$LONGITUDE,
+                          testSubset$LATITUDE))
+```
+
+Set up more basic null models as well:
+```{r}
+# random probabilities
+paNullPreds = as.vector(array(runif(dim(testData)[1]),
+                              c(dim(testData)[1],1)))
+paSubsetNullPreds = as.vector(array(runif(dim(testData)[1]),
+                                    c(dim(testSubset)[1],1)))
+
+# permuted abundance values
+abundNullPreds = sample(testData$abund)
+abundSubsetNullPreds = sample(testSubset$abund)
+```
+
+## Presence/Absence
+AUROCs on whole test set when predicting random probabilities for all test points:
+```{r}
+ROCcurveTestPAgeo = roc(response=testData$presAbs,
+                     predictor=geoNullPreds)
+ROCcurveSubsetPAgeo = roc(response=testSubset$presAbs,
+                     predictor=subsetGeoNullPreds)
+ROCcurveTestPA = roc(response=testData$presAbs,
+                     predictor=paNullPreds)
+ROCcurveSubsetPA = roc(response=testSubset$presAbs,
+                       predictor=paSubsetNullPreds)
+ROCcurveTestAbund = roc(response=testData$presAbs,
+                     predictor=abundNullPreds)
+ROCcurveSubsetAbund = roc(response=testSubset$presAbs,
+                       predictor=abundSubsetNullPreds)
+
+plot(ROCcurveTestPA) # plot it
+plot(ROCcurveSubsetPA,col="red",add=TRUE)
+plot(ROCcurveTestAbund,col="green",add=TRUE)
+plot(ROCcurveSubsetAbund,col="blue",add=TRUE)
+plot(ROCcurveTestPAgeo,col="orange",add=TRUE)
+plot(ROCcurveSubsetPAgeo,col="purple",add=TRUE)
+```
+
+AUPRCs:
+```{r}
+PRCurveTestGeo = pr.curve(geoNullPreds,
+                         weights.class0=testData$presAbs,
+                         curve=TRUE)
+PRCurveSubsetGeo = pr.curve(subsetGeoNullPreds,
+                         weights.class0=testSubset$presAbs,
+                         curve=TRUE)
+PRCurveTestPA = pr.curve(paNullPreds,
+                         weights.class0=testData$presAbs,
+                         curve=TRUE)
+PRCurveSubsetPA = pr.curve(paSubsetNullPreds,
+                         weights.class0=testSubset$presAbs,
+                         curve=TRUE)
+PRCurveTestAbund = pr.curve(abundNullPreds,
+                         weights.class0=testData$presAbs,
+                         curve=TRUE)
+PRCurveSubsetAbund = pr.curve(abundSubsetNullPreds,
+                         weights.class0=testSubset$presAbs,
+                         curve=TRUE)
+plot(PRCurveTestPA,col="black")
+plot(PRCurveSubsetPA,col="red",add=TRUE)
+plot(PRCurveTestAbund,col="green",add=TRUE)
+plot(PRCurveSubsetAbund,col="blue",add=TRUE)
+plot(PRCurveTestGeo,col="orange",add=TRUE)
+plot(PRCurveSubsetGeo,col="purple",add=TRUE)
+
+```
+
+## Abundance
+
+RMSE on whole test set and subset when predicting permuted abundance:
+```{r}
+testSqErr = (abundNullPreds - testData$abund)^2
+table(testSqErr)
+sqrt(mean(testSqErr))
+```
+
+```{r}
+testSubsetSqErr = (abundSubsetNullPreds - testSubset$abund)^2
+table(testSubsetSqErr)
+sqrt(mean(testSubsetSqErr))
+```
+
+How about order of magnitude? Here for the whole test set.
+```{r}
+abundTestPredsOM = abundNullPreds
+abundTestPredsOM[which(abundTestPredsOM>=1 & abundTestPredsOM<10)] = 1
+abundTestPredsOM[which(abundTestPredsOM>=10 & abundTestPredsOM<100)] = 2
+abundTestPredsOM[which(abundTestPredsOM>=100 & abundTestPredsOM<1000)] = 3
+abundTestPredsOM[which(abundTestPredsOM>=1000 & abundTestPredsOM<10000)] = 4
+abundTestPredsOM[which(abundTestPredsOM>=10000)] = 5
+
+testAbundOM = testData$abund
+testAbundOM[which(testAbundOM>=1 & testAbundOM<10)] = 1
+testAbundOM[which(testAbundOM>=10 & testAbundOM<100)] = 2
+testAbundOM[which(testAbundOM>=100 & testAbundOM<1000)] = 3
+testAbundOM[which(testAbundOM>=1000 & testAbundOM<10000)] = 4
+testAbundOM[which(testAbundOM>=10000)] = 5
+
+CMtest = table(testAbundOM,abundTestPredsOM)
+CMtest
+print(paste("Proportion of test points on the diagonal:",sum(diag(CMtest))/sum(CMtest)))
+```
+
+Order of magnitude for test subset.
+```{r}
+abundSubsetPredsOM = abundSubsetNullPreds
+abundSubsetPredsOM[which(abundSubsetPredsOM>=1 & abundSubsetPredsOM<10)] = 1
+abundSubsetPredsOM[which(abundSubsetPredsOM>=10 & abundSubsetPredsOM<100)] = 2
+abundSubsetPredsOM[which(abundSubsetPredsOM>=100 & abundSubsetPredsOM<1000)] = 3
+abundSubsetPredsOM[which(abundSubsetPredsOM>=1000 & abundSubsetPredsOM<10000)] = 4
+abundSubsetPredsOM[which(abundSubsetPredsOM>=10000)] = 5
+
+testSubsetAbundOM = testSubset$abund
+testSubsetAbundOM[which(testSubsetAbundOM>=1 & testSubsetAbundOM<10)] = 1
+testSubsetAbundOM[which(testSubsetAbundOM>=10 & testSubsetAbundOM<100)] = 2
+testSubsetAbundOM[which(testSubsetAbundOM>=100 & testSubsetAbundOM<1000)] = 3
+testSubsetAbundOM[which(testSubsetAbundOM>=1000 & testSubsetAbundOM<10000)] = 4
+testSubsetAbundOM[which(testSubsetAbundOM>=10000)] = 5
+
+CMsubset = table(testSubsetAbundOM,abundSubsetPredsOM)
+CMsubset
+print(paste("Proportion of test points on the diagonal:",sum(diag(CMsubset))/sum(CMsubset)))
+```
+
+## A spatial look at residuals
+Let's also plan to plot the model residuals spatially and look at their autocorrelation.
+
