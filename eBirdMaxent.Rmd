@@ -18,6 +18,7 @@ output:
 source("Y:/users/rah/R/Rconfigure_default.r")
 library(knitr)
 library(raster)
+library(dplyr)
 knitr::opts_knit$set(root.dir = "Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599")
 ```
 
@@ -28,7 +29,7 @@ load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/testSubset_Oxyura_ja
 ```
 
 ```{r}
-load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v3.RData") # envStack
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v4.RData") # envStack
 
 
 # Write them back out in a new directory in ascii format
@@ -47,7 +48,7 @@ write.csv(cbind(species='Oxyura_jamaicensis',
           row.names = FALSE)
 ```
 
-Do we need to thin training presences? 
+# Do we need to thin training presences? 
 
 Use SWD format so we can provide our own background data:
 ```{r}
@@ -67,6 +68,7 @@ write.csv(trainSWD,
 backgroundSWD = data.frame(species='Oxyura_jamaicensis',
                            longitude=trainData$LONGITUDE[trainData$presAbs==0],
                            latitude=trainData$LATITUDE[trainData$presAbs==0])
+backgroundSWD = distinct(backgroundSWD) # new line; relies on dplyr library
 backgroundSWD = cbind(backgroundSWD,
                       extract(envStack,backgroundSWD[,c(2,3)]))
 rowsWithNAs = which(rowSums(is.na(backgroundSWD))>0)
@@ -76,7 +78,7 @@ if (length(rowsWithNAs)>0) {
 
 # cut down to deal with Java memory error
 
-write.csv(backgroundSWD[sample(nrow(backgroundSWD),20000),],
+write.csv(backgroundSWD[sample(nrow(backgroundSWD),40000),],
           file='Oxyura_jamaicensis_background.csv',
           row.names = FALSE)
 
