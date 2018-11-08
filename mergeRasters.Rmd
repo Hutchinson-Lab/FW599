@@ -1,0 +1,76 @@
+---
+title: "Merge rasters"
+output: html_notebook
+---
+
+This document contains code to add layers to the stack of predictor variables.
+
+```{r,message=FALSE}
+source("Y:/users/rah/R/Rconfigure_default.r")
+knitr::opts_knit$set(root.dir = "Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/")
+
+# geographic tools packages
+library(raster)
+library(rgdal)
+```
+
+Load the current version of envStack and a new elevation layer. Crop the elevation layer to the extent of envStack, and then add it to the stack. Save the new version.
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack.RData")
+
+elevation <- raster('C:/Users/Rebecca/Desktop/SDM_Workshop/WORLDCLIM/Elevation/World/elevation.tif')
+elevation <- resample(elevation,envStack$Annual.Mean.Temperature)
+#elevation <- crop(elevation, extent(envStack))
+envStack_merged = addLayer(envStack,elevation)
+#save(envStack_v2,"Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v2.RData")
+```
+
+```{r}
+landsat <- stack('L8_surfaceReflectance_tnc_terr_ecoregions_7bands_1500m.tif')
+res(landsat)
+res(envStack)
+```
+
+```{r}
+flyways <- raster("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/DU_raw/flyraster.ovr")
+focusAreas <- raster("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/DU_raw/focusraster.ovr")
+plan <- raster("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/DU_raw/planraster.ovr")
+
+```
+
+
+Ray Brunner: wetlands layer
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v2RLB.Rdata") # envStack_v2
+
+envStack_merged = addLayer(envStack_merged,envStack_v2$glwd_3)
+
+```
+
+Hannah Friedrich: GlobCover
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_HF.RData") # envStack_v4
+
+envStack_merged = addLayer(envStack_merged,envStack_v4$GlobCover2009LC)
+
+```
+
+Francisco Pickens: MODIS
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_FATP.Rdata") # land_usetype
+
+envStack_merged = addLayer(envStack_merged,land_usetype$LC_5min_global_2012)
+
+```
+
+Marisa Zimmerman: Ducks Unlimited (flyways?)
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v2MZ.RData") # envStack3
+
+
+```
+
+```{r}
+envStack = envStack_merged
+save(envStack,file="Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v2.RData")
+```
