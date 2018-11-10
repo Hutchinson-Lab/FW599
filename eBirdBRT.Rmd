@@ -30,8 +30,75 @@ load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/testSubset_Oxyura_ja
 ```
 
 ```{r}
-load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v3.RData") # envStack
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v4.RData") # envStack
 ```
+
+# Prepare training data
+
+```{r}
+trainData = cbind(trainData,
+                  extract(envStack,trainData[,c(4,3)]))
+trainData$GlobCover2009LC = as.factor(trainData$GlobCover2009LC)
+trainData$LC_5min_global_2012 = as.factor(trainData$LC_5min_global_2012)
+```
+
+Subsample absence for computational considerations?
+```{r}
+trainData = rbind(trainData[which(trainData$presAbs==1),], # all presences
+                  trainData[sample(which(trainData$presAbs==0),20000),]) # 20000 absences
+```
+
+# Tune parameters for presence-absence modeling
+
+If you reach the maximum tree limit, I suggest increasing it. If that doesn't work, we may need to increase the learning rate. Here are three settings to start with: depth 1 trees with a smallish learning rate, then doubling depth and halving learning rate twice. 
+
+```{r}
+set.seed(1234)
+PAmodel1 = gbm.step(data=trainData,
+                  gbm.x=c(8,12,13,14,15,17,23:45),
+                  gbm.y=21,
+                  family = "bernoulli", 
+                  tree.complexity = 1, 
+                  learning.rate = 0.01, 
+                  bag.fraction = 0.5,
+                  max.trees = 20000)
+names(PAmodel1)
+summary(PAmodel1)
+```
+
+```{r}
+set.seed(1234)
+PAmodel2 = gbm.step(data=trainData,
+                  gbm.x=c(8,12,13,14,15,17,23:45),
+                  gbm.y=21,
+                  family = "bernoulli", 
+                  tree.complexity = 2, 
+                  learning.rate = 0.005, 
+                  bag.fraction = 0.5)
+names(PAmodel2)
+summary(PAmodel2)
+```
+
+```{r}
+set.seed(1234)
+PAmodel3 = gbm.step(data=trainData,
+                  gbm.x=c(8,12,13,14,15,17,23:45),
+                  gbm.y=21,
+                  family = "bernoulli", 
+                  tree.complexity = 4, 
+                  learning.rate = 0.0025, 
+                  bag.fraction = 0.5)
+names(PAmodel3)
+summary(PAmodel3)
+```
+
+# Select a final presence-absence model
+
+# Tune parameters for abundance model
+
+# Select a final abundance model
+
+# Prepare test sets
 
 ```{r}
 testSubset = cbind(testSubset,
@@ -47,26 +114,3 @@ testData$GlobCover2009LC = as.factor(testData$GlobCover2009LC)
 testData$LC_5min_global_2012 = as.factor(testData$LC_5min_global_2012)
 ```
 
-```{r}
-trainData = cbind(trainData,
-                  extract(envStack,trainData[,c(4,3)]))
-trainData$GlobCover2009LC = as.factor(trainData$GlobCover2009LC)
-trainData$LC_5min_global_2012 = as.factor(trainData$LC_5min_global_2012)
-```
-
-```{r}
-trainData = rbind(trainData[which(trainData$presAbs==1),], # all presences
-                  trainData[sample(which(trainData$presAbs==0),20000),]) # 20000 absences
-```
-
-```{r}
-PAmodel1 = gbm.step(data=trainData,
-                  gbm.x=c(8,12,13,14,15,17,23:45),
-                  gbm.y=21,
-                  family = "bernoulli", 
-                  tree.complexity = 2, 
-                  learning.rate = 0.001, 
-                  bag.fraction = 0.5)
-names(PAmodel1)
-summary(PAmodel1)
-```

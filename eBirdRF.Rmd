@@ -1,0 +1,104 @@
+---
+title: 'RF -> eBird'
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+**You Will Need:**
+
+* The current raster stack
+
+* Your duck species training and test sets
+
+* R packages: raster, randomForest
+
+```{r}
+source("Y:/users/rah/R/Rconfigure_default.r")
+library(knitr)
+library(raster)
+library(randomForest)
+knitr::opts_knit$set(root.dir = "Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599")
+```
+
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/trainData_Oxyura_jamaicensis.RData") # trainData
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/testData_Oxyura_jamaicensis.RData") # testData
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/testSubset_Oxyura_jamaicensis.RData") # testSubset
+```
+
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v4.RData") # envStack
+```
+
+# Prepare training data
+
+```{r}
+trainData = cbind(trainData,
+                  extract(envStack,trainData[,c(4,3)]))
+trainData$GlobCover2009LC = as.factor(trainData$GlobCover2009LC)
+trainData$LC_5min_global_2012 = as.factor(trainData$LC_5min_global_2012)
+
+# Remove datapoints with missing values
+trainData = trainData[-which(rowSums(is.na(trainData[,c(8,12,13,14,15,17,23:45)]))>0),]
+
+# Convert presAbs to factor
+trainData$presAbs = as.factor(trainData$presAbs)
+```
+
+Subsample absence for computational considerations?
+```{r}
+trainData = rbind(trainData[which(trainData$presAbs==1),], # all presences
+                  trainData[sample(which(trainData$presAbs==0),20000),]) # 20000 absences
+```
+
+# Tune parameters for presence-absence model
+We can start with a baseline/default strategy here by using the OOB error rate to tune ntree and mtry. This run starts with the default mtry - we can also try doubling and halving the default. For each, we can keep increasing ntree until the error rate is not improving anymore. 
+```{r}
+set.seed(1234) 
+model1 = randomForest(presAbs~Isothermality + 
+                              Annual.Mean.Temperature + 
+                              Mean.Diurnal.Range + 
+                              Temperature.Seasonality + 
+                              Max.Temperature.of.Warmest.Month + 
+                              Min.Temperature.of.Coldest.Month + 
+                              Temperature.Annual.Range + 
+                              Mean.Temperature.of.Wettest.Quarter + 
+                              Mean.Temperature.of.Driest.Quarter + 
+                              Mean.Temperature.of.Warmest.Quarter + 
+                              Mean.Temperature.of.Coldest.Quarter + 
+                              Annual.Precipitation + 
+                              Precipitation.of.Wettest.Month + 
+                              Precipitation.of.Driest.Month + 
+                              Precipitation.Seasonality + 
+                              Precipitation.of.Wettest.Quarter + 
+                              Precipitation.of.Driest.Quarter + 
+                              Precipitation.of.Warmest.Quarter + 
+                              Precipitation.of.Coldest.Quarter + 
+                              elevation + 
+                              glwd_3 + 
+                              GlobCover2009LC + 
+                              LC_5min_global_2012 + 
+                              TIME + 
+                              COUNT_TYPE + 
+                              EFFORT_HRS + 
+                              EFFORT_DISTANCE_KM + 
+                              EFFORT_AREA_HA + 
+                              NUMBER_OBSERVERS,
+                      data=trainData,
+                      mtry=5, # default with 29 predictors (floor(sqrt(29)))
+                      ntree=2000,
+                      importance=TRUE, # compute importance values
+                      proximity=FALSE, # don't compute proximity values
+                      keep.forest=FALSE) # speed things up by not keeping the trees - we can regrow later for the final model
+print(model1)
+plot(model1$err.rate[,1])
+```
+
+# Select a final presence-absence model
+
+# Tune parameters for abundance model
+
+# Select a final abundance model
+
