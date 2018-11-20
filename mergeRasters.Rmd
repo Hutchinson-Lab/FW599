@@ -74,3 +74,55 @@ load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v2MZ.RData"
 envStack = envStack_merged
 save(envStack,file="Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v2.RData")
 ```
+
+
+Add "standard observer" values for spatial prediction with effort variables. 
+```{r}
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v4.RData")
+load("Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/janDuckDataNAmer_v2.RData")
+
+dayRast = envStack$Annual.Mean.Temperature
+dayRast = dayRast*0+16 # 1/16
+names(dayRast) = "DAY"
+envStack = addLayer(dayRast,envStack)
+
+timeRast = envStack$Annual.Mean.Temperature
+timeRast = timeRast*0+8 # 8am
+names(timeRast) = "TIME"
+envStack = addLayer(timeRast,envStack)
+
+typeRast = envStack$Annual.Mean.Temperature
+typeRast = typeRast*0 + 1 # first count type P21 (stationary)
+typeRast = as.factor(typeRast)
+#typeLevs = data.frame(ID=1:nlevels(duckData$COUNT_TYPE))
+#typeLevs$Name = levels(duckData$COUNT_TYPE)
+typeLevs = levels(typeRast)[[1]]
+typeLevs$code = "P21"
+levels(typeRast) = typeLevs
+names(typeRast) = "COUNT_TYPE"
+envStack = addLayer(typeRast,envStack)
+
+hoursRast = envStack$Annual.Mean.Temperature
+hoursRast = hoursRast*0 + 1 # one hour
+names(hoursRast) = "EFFORT_HRS"
+envStack = addLayer(hoursRast,envStack)
+
+distRast = envStack$Annual.Mean.Temperature
+distRast = distRast*0
+names(distRast) = "EFFORT_DISTANCE_KM"
+envStack = addLayer(distRast,envStack)
+
+areaRast = envStack$Annual.Mean.Temperature
+areaRast = areaRast*0
+names(areaRast) = "EFFORT_AREA_HA"
+envStack = addLayer(areaRast,envStack)
+
+numRast = envStack$Annual.Mean.Temperature
+numRast = numRast*0 + 1
+names(numRast) = "NUMBER_OBSERVERS"
+envStack = addLayer(numRast,envStack)
+
+save(envStack,file="Y:/users/rah/Teaching/2018fa_fw599/GroupProject/FW599/envStack_v5.RData")
+
+
+```
